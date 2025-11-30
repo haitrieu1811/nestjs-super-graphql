@@ -1,76 +1,61 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 
-import { CreateUserInput, UpdateUserInput, User } from 'src/modules/user.dto'
+import { CreateUserInput, UpdateUserInput } from 'src/modules/user.dto'
+import { UserRepo } from 'src/modules/user.repo'
+import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from 'src/shared/helpers'
 
 @Injectable()
 export class UserService {
-  private users = [
-    {
-      id: 1,
-      name: 'John Doe',
-      email: 'john@example.com',
-      password: 'password',
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 2,
-      name: 'Alex Smith',
-      email: 'alex@example.com',
-      password: 'password',
-      createdAt: new Date().toISOString(),
-    },
-  ]
+  constructor(private readonly userRepo: UserRepo) {}
 
-  findAll(): Promise<User[]> {
-    return Promise.resolve(this.users)
+  findAll() {
+    return this.userRepo.findAll()
   }
 
-  findOne(id: number): Promise<User> {
-    const user = this.users.find((user) => user.id === id)
-    if (!user) {
-      throw new NotFoundException('UserNotFound')
-    }
-    return Promise.resolve(user)
-  }
-
-  create(createUserInput: CreateUserInput): Promise<User> {
-    const newUser: User = {
-      id: this.users[this.users.length - 1].id++,
-      name: createUserInput.name,
-      email: createUserInput.email,
-      password: createUserInput.password,
-      createdAt: new Date().toISOString(),
-    }
-    this.users.push(newUser)
-    return Promise.resolve(newUser)
-  }
-
-  update({ updateUserInput, userId }: { updateUserInput: UpdateUserInput; userId: number }): Promise<User> {
-    const index = this.users.findIndex((user) => user.id === userId)
-    if (index === -1) {
-      throw new NotFoundException('UserNotFound')
-    }
-    this.users = this.users.map((user) => {
-      if (user.id === userId) {
-        return {
-          ...user,
-          name: updateUserInput.name ?? user.name,
-          email: updateUserInput.email ?? user.email,
-          password: updateUserInput.password ?? user.password,
-        }
+  async findOne(id: number) {
+    try {
+      return await this.userRepo.findOne(id)
+    } catch (error) {
+      if (isNotFoundPrismaError(error)) {
+        throw new NotFoundException(`Không tìm thấy user có id ${id}`)
       }
-      return user
-    })
-    return Promise.resolve(this.users.find((user) => user.id === userId) as User)
+      throw error
+    }
   }
 
-  delete(userId: number): Promise<User> {
-    const index = this.users.findIndex((user) => user.id === userId)
-    if (index === -1) {
-      throw new NotFoundException('UserNotFound')
+  async create(createUserInput: CreateUserInput) {
+    try {
+      return await this.userRepo.create(createUserInput)
+    } catch (error) {
+      if (isUniqueConstraintPrismaError(error)) {
+        throw new ConflictException(`User có email ${createUserInput.email} đã tồn tại`)
+      }
+      throw error
     }
-    const user = this.users.find((user) => user.id === userId) as User
-    this.users.splice(index, 1)
-    return Promise.resolve(user)
+  }
+
+  async update({ updateUserInput, userId }: { updateUserInput: UpdateUserInput; userId: number }) {
+    try {
+      return await this.userRepo.update({ id: userId, data: updateUserInput })
+    } catch (error) {
+      if (isNotFoundPrismaError(error)) {
+        throw new NotFoundException(`Không tìm thấy user có id ${userId}`)
+      }
+      if (isUniqueConstraintPrismaError(error)) {
+        throw new ConflictException(`User có email ${updateUserInput.email} đã tồn tại`)
+      }
+      throw error
+    }
+  }
+
+  async delete(userId: number) {
+    try {
+      return await this.userRepo.delete(userId)
+    } catch (error) {
+      if (isNotFoundPrismaError(error)) {
+        throw new NotFoundException(`Không tìm thấy user có id ${userId}`)
+      }
+      throw error
+    }
   }
 }
